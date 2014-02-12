@@ -12,6 +12,7 @@ from collections import defaultdict
 from .sections import Section
 from .segments import Segment
 from ..common.utils import struct_parse
+from .strings import StringTable
 
 
 class DynamicTag(object):
@@ -52,13 +53,18 @@ class DynamicTag(object):
 class Dynamic(object):
     """ Shared functionality between dynamic sections and segments.
     """
-    def __init__(self, stream, elffile, stringtable, position):
+    def __init__(self, stream, elffile, stringtable=None, position=None):
+        if position is None:
+            raise TypeError('"position" argument is required')
+        
         self._stream = stream
         self._elffile = elffile
         self._elfstructs = elffile.structs
         self._entries = None  # Loaded on demand
         self._offset = position
         self._tagsize = self._elfstructs.Elf_Dyn.sizeof()
+        
+        # Determined after loading entries if not provided
         self._stringtable = stringtable
 
     def iter_tags(self, type=None):
@@ -85,6 +91,8 @@ class Dynamic(object):
         return len(self._entries)
     
     def _load_entries(self):
+        """ Prepare entry lists and string table if necessary
+        """
         if self._entries is not None:  # Already loaded
             return
         
@@ -101,6 +109,18 @@ class Dynamic(object):
             if entry.d_tag == 'DT_NULL':
                 break
         self._entry_type_map.default_factory = None
+        
+        if self._stringtable is not None:  # Already provided
+            return
+        
+        (strtab,) = self._entry_type_map['DT_STRTAB']
+        strsz = self._entry_type_map.get('DT_STRSZ')
+        if strsz:
+            (strsz,) = strsz
+            strsz = strsz.d_val
+        
+        strtab = self._elffile.map(strtab.d_ptr, strsz)
+        self._stringtable = StringTable(self._stream, strtab, strsz)
 
 
 class DynamicSection(Section, Dynamic):
@@ -116,16 +136,5 @@ class DynamicSegment(Segment, Dynamic):
     """ ELF dynamic table segment.  Knows how to process the list of tags.
     """
     def __init__(self, header, stream, elffile):
-        # The string table section to be used to resolve string names in
-        # the dynamic tag array is the one pointed at by the sh_link field
-        # of the dynamic section header.
-        # So we must look for the dynamic section contained in the dynamic
-        # segment, we do so by searching for the dynamic section whose content
-        # is located at the same offset as the dynamic segment
-        for section in elffile.iter_sections():
-            if (isinstance(section, DynamicSection) and
-                    section['sh_offset'] == header['p_offset']):
-                stringtable = elffile.get_section(section['sh_link'])
-                break
         Segment.__init__(self, header, stream)
-        Dynamic.__init__(self, stream, elffile, stringtable, self['p_offset'])
+        Dynamic.__init__(self, stream, elffile, position=self['p_offset'])
