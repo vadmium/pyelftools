@@ -107,6 +107,28 @@ class ELFFile(object):
         """
         for i in range(self.num_segments()):
             yield self.get_segment(i)
+    
+    def map(self, start, size=1):
+        """ Map from memory address to file offset
+        """
+        
+        end = start + size
+        
+        # Find a segment containing the memory region
+        found = None
+        for seg in self.iter_segments():
+            if (start >= seg['p_vaddr'] and
+            end <= seg['p_vaddr'] + seg['p_filesz']):
+                # Region is contained completely within this segment
+                new = start - seg['p_vaddr'] + seg['p_offset']
+                if found is not None and found != new:
+                    msg = 'Inconsistent mapping for memory address 0x{0:X}'
+                    raise ValueError(msg.format(start))
+                found = new
+        
+        if found is None:
+            raise LookupError('No segment found for 0x{0:X}'.format(start))
+        return found
 
     def has_dwarf_info(self):
         """ Check whether this file appears to have debugging information.
