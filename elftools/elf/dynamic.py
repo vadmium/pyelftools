@@ -7,6 +7,7 @@
 # This code is in the public domain
 #-------------------------------------------------------------------------------
 import itertools
+from collections import defaultdict
 
 from .sections import Section
 from .segments import Segment
@@ -55,42 +56,51 @@ class Dynamic(object):
         self._stream = stream
         self._elffile = elffile
         self._elfstructs = elffile.structs
-        self._num_tags = -1
+        self._entries = None  # Loaded on demand
         self._offset = position
         self._tagsize = self._elfstructs.Elf_Dyn.sizeof()
         self._stringtable = stringtable
 
     def iter_tags(self, type=None):
-        """ Yield all tags (limit to |type| if specified)
+        """ Yield all tags in arbitrary order (limit to |type| if specified)
         """
-        for n in itertools.count():
-            tag = self.get_tag(n)
-            if type is None or tag.entry.d_tag == type:
-                yield tag
-            if tag.entry.d_tag == 'DT_NULL':
-                break
+        self._load_entries()
+        if type is None:
+            entries = self._entries
+        else:
+            entries = self._entry_type_map.get(type, ())
+        for entry in entries:
+            yield DynamicTag(entry, self._stringtable)
 
     def get_tag(self, n):
         """ Get the tag at index #n from the file (DynamicTag object)
         """
-        offset = self._offset + n * self._tagsize
-        entry = struct_parse(
-            self._elfstructs.Elf_Dyn,
-            self._stream,
-            stream_pos=offset)
-        return DynamicTag(entry, self._stringtable)
+        self._load_entries()
+        return DynamicTag(self._entries[n], self._stringtable)
 
     def num_tags(self):
         """ Number of dynamic tags in the file
         """
-        if self._num_tags != -1:
-            return self._num_tags
-
+        self._load_entries()
+        return len(self._entries)
+    
+    def _load_entries(self):
+        if self._entries is not None:  # Already loaded
+            return
+        
+        self._entries = list()
+        self._entry_type_map = defaultdict(list)  # Entry lists by tag type
         for n in itertools.count():
-            tag = self.get_tag(n)
-            if tag.entry.d_tag == 'DT_NULL':
-                self._num_tags = n + 1
-                return self._num_tags
+            offset = self._offset + n * self._tagsize
+            entry = struct_parse(
+                self._elfstructs.Elf_Dyn,
+                self._stream,
+                stream_pos=offset)
+            self._entries.append(entry)
+            self._entry_type_map[entry.d_tag].append(entry)
+            if entry.d_tag == 'DT_NULL':
+                break
+        self._entry_type_map.default_factory = None
 
 
 class DynamicSection(Section, Dynamic):
