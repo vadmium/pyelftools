@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from .sections import Section
 from .segments import Segment
+from ..common.exceptions import ELFError
 from ..common.utils import struct_parse
 from .strings import StringTable
 
@@ -29,6 +30,8 @@ class DynamicTag(object):
          'DT_SUNW_FILTER'])
 
     def __init__(self, entry, stringtable):
+        if stringtable is None:
+            raise ELFError('Creating DynamicTag without string table')
         self.entry = entry
         if entry.d_tag in self._HANDLED_TAGS:
             setattr(self, entry.d_tag[3:].lower(),
