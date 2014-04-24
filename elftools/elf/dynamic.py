@@ -117,7 +117,6 @@ class DynamicSegment(Segment, Dynamic):
         # So we must look for the dynamic section contained in the dynamic
         # segment, we do so by searching for the dynamic section whose content
         # is located at the same offset as the dynamic segment
-        stringtable = None
         for section in elffile.iter_sections():
             if (isinstance(section, DynamicSection) and
                     section['sh_offset'] == header['p_offset']):
